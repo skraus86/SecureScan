@@ -1,3 +1,4 @@
+# Developed with Claude 4.5
 # 🛡️ SecureScan
 
 **Application Security Scanner for SAST, SCA, and Secrets Detection**
