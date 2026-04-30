@@ -1,0 +1,186 @@
+name: SecureScan Security Analysis
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  schedule:
+    # Run weekly security scan on Sundays at midnight
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      fail_on_high:
+        description: 'Fail on high severity issues'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secrets scanning
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install SecureScan
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+
+      - name: Run SecureScan
+        id: scan
+        run: |
+          python -m securescan . \
+            --output ./security-reports \
+            --format json,html,sarif \
+            ${{ github.event.inputs.fail_on_high == 'true' && '--fail-on-high' || '' }} \
+            --no-fail || echo "scan_failed=true" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ./security-reports/securescan_*.sarif
+          category: securescan
+
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: ./security-reports/
+          retention-days: 30
+
+      - name: Post Summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Find the JSON report
+            const reportsDir = './security-reports';
+            const files = fs.readdirSync(reportsDir);
+            const jsonFile = files.find(f => f.endsWith('.json') && !f.includes('executive'));
+            
+            if (!jsonFile) {
+              console.log('No JSON report found');
+              return;
+            }
+            
+            const report = JSON.parse(fs.readFileSync(path.join(reportsDir, jsonFile), 'utf8'));
+            const summary = report.summary;
+            
+            let statusEmoji = '✅';
+            if (summary.by_severity.critical > 0) statusEmoji = '🚨';
+            else if (summary.by_severity.high > 0) statusEmoji = '⚠️';
+            else if (summary.by_severity.medium > 0) statusEmoji = '⚡';
+            
+            const body = `## ${statusEmoji} SecureScan Security Report
+            
+            | Severity | Count |
+            |----------|-------|
+            | 🔴 Critical | ${summary.by_severity.critical} |
+            | 🟠 High | ${summary.by_severity.high} |
+            | 🟡 Medium | ${summary.by_severity.medium} |
+            | 🔵 Low | ${summary.by_severity.low} |
+            | ⚪ Info | ${summary.by_severity.info} |
+            
+            **Scan Details:**
+            - Files Scanned: ${summary.files_scanned}
+            - Dependencies Checked: ${summary.dependencies_scanned}
+            - Scan Duration: ${summary.scan_duration_seconds.toFixed(2)}s
+            
+            **Findings by Type:**
+            - SAST: ${summary.by_type.sast}
+            - SCA: ${summary.by_type.sca}
+            - Secrets: ${summary.by_type.secrets}
+            
+            📊 [View Full Report](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Check for Critical Issues
+        if: steps.scan.outputs.scan_failed == 'true'
+        run: |
+          echo "::error::Security scan found critical vulnerabilities!"
+          exit 1
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0
+
+  notify-on-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [security-scan]
+    if: failure() && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Send Slack Notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "text": "🚨 Security Scan Failed!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🚨 *Security Scan Failed*\n\nRepository: `${{ github.repository }}`\nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Run"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }' \
+            $SLACK_WEBHOOK_URL

@@ -1,0 +1,85 @@
+# Reusable Azure DevOps Pipeline Template for SecureScan
+# Use this template in your project pipelines
+
+parameters:
+  - name: targetPath
+    type: string
+    default: '$(Build.SourcesDirectory)'
+  - name: outputDirectory
+    type: string
+    default: '$(Build.ArtifactStagingDirectory)/security-reports'
+  - name: failOnCritical
+    type: boolean
+    default: true
+  - name: failOnHigh
+    type: boolean
+    default: false
+  - name: enableSAST
+    type: boolean
+    default: true
+  - name: enableSCA
+    type: boolean
+    default: true
+  - name: enableSecrets
+    type: boolean
+    default: true
+  - name: publishArtifacts
+    type: boolean
+    default: true
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: 'Setup Python'
+    inputs:
+      versionSpec: '3.11'
+      addToPath: true
+
+  - script: |
+      pip install --upgrade pip
+      pip install securescan
+    displayName: 'Install SecureScan'
+
+  - script: |
+      mkdir -p ${{ parameters.outputDirectory }}
+      
+      SCAN_ARGS="${{ parameters.targetPath }} --output ${{ parameters.outputDirectory }} --format json,html,sarif"
+      
+      if [ "${{ parameters.enableSAST }}" = "False" ]; then
+        SCAN_ARGS="$SCAN_ARGS --no-sast"
+      fi
+      
+      if [ "${{ parameters.enableSCA }}" = "False" ]; then
+        SCAN_ARGS="$SCAN_ARGS --no-sca"
+      fi
+      
+      if [ "${{ parameters.enableSecrets }}" = "False" ]; then
+        SCAN_ARGS="$SCAN_ARGS --no-secrets"
+      fi
+      
+      if [ "${{ parameters.failOnHigh }}" = "True" ]; then
+        SCAN_ARGS="$SCAN_ARGS --fail-on-high"
+      fi
+      
+      if [ "${{ parameters.failOnCritical }}" = "False" ]; then
+        SCAN_ARGS="$SCAN_ARGS --no-fail"
+      fi
+      
+      python -m securescan $SCAN_ARGS
+    displayName: 'Run SecureScan'
+    continueOnError: ${{ not(parameters.failOnCritical) }}
+
+  - ${{ if eq(parameters.publishArtifacts, true) }}:
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Security Reports'
+      inputs:
+        pathToPublish: '${{ parameters.outputDirectory }}'
+        artifactName: 'SecurityReports'
+        publishLocation: 'Container'
+      condition: always()
+
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish SARIF for Advanced Security'
+    inputs:
+      targetPath: '${{ parameters.outputDirectory }}'
+      artifact: 'CodeAnalysisLogs'
+    condition: always()

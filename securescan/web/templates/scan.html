@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}SecureScan - New Scan{% endblock %}
+{% block nav_scan %}text-indigo-200 font-semibold{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-8">
+    <!-- Header -->
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+        <h1 class="text-3xl font-bold text-gray-800">
+            <i class="fas fa-search text-indigo-500 mr-2"></i>
+            New Security Scan
+        </h1>
+        <p class="text-gray-500 mt-2">Configure and start a security scan on your codebase</p>
+    </div>
+
+    <!-- Scan Form -->
+    <form id="scanForm" class="bg-white rounded-2xl shadow-lg p-8 space-y-6">
+        <!-- Target Path -->
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-folder mr-1"></i>
+                Target Path
+            </label>
+            <input type="text" id="targetPath" name="target_path" 
+                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                   placeholder="/path/to/your/project"
+                   required>
+            <p class="text-sm text-gray-500 mt-1">Enter the absolute path to the directory you want to scan</p>
+        </div>
+
+        <!-- Scan Options -->
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-3">
+                <i class="fas fa-cog mr-1"></i>
+                Scan Types
+            </label>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label class="flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                    <input type="checkbox" id="sastEnabled" name="sast_enabled" checked 
+                           class="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500">
+                    <div class="ml-3">
+                        <span class="font-medium text-gray-800">SAST</span>
+                        <p class="text-xs text-gray-500">Code vulnerabilities</p>
+                    </div>
+                </label>
+                <label class="flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                    <input type="checkbox" id="scaEnabled" name="sca_enabled" checked
+                           class="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500">
+                    <div class="ml-3">
+                        <span class="font-medium text-gray-800">SCA</span>
+                        <p class="text-xs text-gray-500">Dependency vulnerabilities</p>
+                    </div>
+                </label>
+                <label class="flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                    <input type="checkbox" id="secretsEnabled" name="secrets_enabled" checked
+                           class="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500">
+                    <div class="ml-3">
+                        <span class="font-medium text-gray-800">Secrets</span>
+                        <p class="text-xs text-gray-500">Hardcoded credentials</p>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="pt-4">
+            <button type="submit" id="submitBtn"
+                    class="w-full px-6 py-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-semibold text-lg flex items-center justify-center gap-2">
+                <i class="fas fa-play"></i>
+                Start Security Scan
+            </button>
+        </div>
+    </form>
+
+    <!-- Scan Progress (hidden by default) -->
+    <div id="scanProgress" class="bg-white rounded-2xl shadow-lg p-8 hidden">
+        <div class="text-center">
+            <div class="loader mx-auto mb-4"></div>
+            <h3 class="text-xl font-semibold text-gray-800">Scanning in Progress...</h3>
+            <p id="progressText" class="text-gray-500 mt-2">Initializing scan</p>
+            
+            <div class="mt-6 bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div id="progressBar" class="bg-indigo-600 h-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+            <p id="progressPercent" class="text-sm text-gray-500 mt-2">0%</p>
+        </div>
+        
+        <div id="scanSteps" class="mt-8 space-y-3">
+            <div class="flex items-center gap-3 text-gray-500">
+                <i class="fas fa-circle text-xs pulse-dot" id="step1Icon"></i>
+                <span id="step1Text">Initializing scanners...</span>
+            </div>
+            <div class="flex items-center gap-3 text-gray-400">
+                <i class="fas fa-circle text-xs" id="step2Icon"></i>
+                <span id="step2Text">Running SAST analysis...</span>
+            </div>
+            <div class="flex items-center gap-3 text-gray-400">
+                <i class="fas fa-circle text-xs" id="step3Icon"></i>
+                <span id="step3Text">Checking dependencies...</span>
+            </div>
+            <div class="flex items-center gap-3 text-gray-400">
+                <i class="fas fa-circle text-xs" id="step4Icon"></i>
+                <span id="step4Text">Scanning for secrets...</span>
+            </div>
+            <div class="flex items-center gap-3 text-gray-400">
+                <i class="fas fa-circle text-xs" id="step5Icon"></i>
+                <span id="step5Text">Generating report...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Tips -->
+    <div class="bg-indigo-50 rounded-2xl p-6">
+        <h3 class="font-semibold text-indigo-800 mb-3">
+            <i class="fas fa-lightbulb mr-1"></i>
+            Quick Tips
+        </h3>
+        <ul class="text-sm text-indigo-700 space-y-2">
+            <li><i class="fas fa-check mr-2"></i>Ensure the target path is accessible and contains source code</li>
+            <li><i class="fas fa-check mr-2"></i>For best results, include dependency manifest files (package.json, requirements.txt, etc.)</li>
+            <li><i class="fas fa-check mr-2"></i>Large codebases may take longer to scan</li>
+            <li><i class="fas fa-check mr-2"></i>Findings are ranked by CVSS score following CVE severity standards</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let currentScanId = null;
+    let pollInterval = null;
+
+    document.getElementById('scanForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const targetPath = document.getElementById('targetPath').value;
+        const sastEnabled = document.getElementById('sastEnabled').checked;
+        const scaEnabled = document.getElementById('scaEnabled').checked;
+        const secretsEnabled = document.getElementById('secretsEnabled').checked;
+        
+        if (!targetPath) {
+            showToast('Please enter a target path', 'error');
+            return;
+        }
+        
+        // Disable form and show progress
+        document.getElementById('submitBtn').disabled = true;
+        document.getElementById('submitBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Starting...';
+        
+        try {
+            const response = await apiCall('/api/scan', {
+                method: 'POST',
+                body: JSON.stringify({
+                    target_path: targetPath,
+                    sast_enabled: sastEnabled,
+                    sca_enabled: scaEnabled,
+                    secrets_enabled: secretsEnabled
+                })
+            });
+            
+            if (response.error) {
+                throw new Error(response.error);
+            }
+            
+            currentScanId = response.scan_id;
+            
+            // Hide form, show progress
+            document.getElementById('scanForm').classList.add('hidden');
+            document.getElementById('scanProgress').classList.remove('hidden');
+            
+            // Start polling for status
+            pollInterval = setInterval(checkScanStatus, 2000);
+            
+        } catch (error) {
+            showToast(error.message || 'Failed to start scan', 'error');
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').innerHTML = '<i class="fas fa-play"></i> Start Security Scan';
+        }
+    });
+
+    async function checkScanStatus() {
+        if (!currentScanId) return;
+        
+        try {
+            const status = await apiCall(`/api/scan/${currentScanId}/status`);
+            
+            // Update progress bar
+            const progress = status.progress || 0;
+            document.getElementById('progressBar').style.width = `${progress}%`;
+            document.getElementById('progressPercent').textContent = `${progress}%`;
+            
+            // Update steps
+            updateSteps(progress);
+            
+            if (status.status === 'completed') {
+                clearInterval(pollInterval);
+                showToast('Scan completed successfully!', 'success');
+                
+                // Redirect to results
+                setTimeout(() => {
+                    window.location.href = `/results/${currentScanId}`;
+                }, 1500);
+                
+            } else if (status.status === 'error') {
+                clearInterval(pollInterval);
+                showToast('Scan failed: ' + (status.error || 'Unknown error'), 'error');
+                
+                // Reset form
+                document.getElementById('scanForm').classList.remove('hidden');
+                document.getElementById('scanProgress').classList.add('hidden');
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').innerHTML = '<i class="fas fa-play"></i> Start Security Scan';
+            }
+            
+        } catch (error) {
+            console.error('Status check failed:', error);
+        }
+    }
+
+    function updateSteps(progress) {
+        const steps = [
+            { threshold: 10, icon: 'step1Icon', text: 'step1Text' },
+            { threshold: 30, icon: 'step2Icon', text: 'step2Text' },
+            { threshold: 50, icon: 'step3Icon', text: 'step3Text' },
+            { threshold: 70, icon: 'step4Icon', text: 'step4Text' },
+            { threshold: 90, icon: 'step5Icon', text: 'step5Text' }
+        ];
+        
+        steps.forEach((step, index) => {
+            const icon = document.getElementById(step.icon);
+            const text = document.getElementById(step.text);
+            
+            if (progress >= step.threshold) {
+                icon.classList.remove('pulse-dot');
+                icon.classList.add('text-green-500');
+                icon.classList.remove('fa-circle');
+                icon.classList.add('fa-check-circle');
+                text.classList.remove('text-gray-400');
+                text.classList.add('text-green-600');
+            }
+            
+            // Current step
+            if (progress >= step.threshold && (index === steps.length - 1 || progress < steps[index + 1].threshold)) {
+                if (progress < 100) {
+                    icon.classList.add('pulse-dot');
+                    icon.classList.remove('text-green-500');
+                    icon.classList.add('text-indigo-500');
+                }
+            }
+        });
+    }
+</script>
+{% endblock %}

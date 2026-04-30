@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}SecureScan - Results{% endblock %}
+{% block nav_results %}text-indigo-200 font-semibold{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="bg-white rounded-2xl shadow-lg p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">
+                    <i class="fas fa-list text-indigo-500 mr-2"></i>
+                    Scan Results
+                </h1>
+                <p class="text-gray-500 mt-1">View and analyze your security scan results</p>
+            </div>
+            <a href="/scan" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+                <i class="fas fa-plus mr-1"></i> New Scan
+            </a>
+        </div>
+    </div>
+
+    <!-- Results List -->
+    <div id="resultsList" class="space-y-4">
+        <div class="text-center py-12 text-gray-500">
+            <div class="loader mx-auto mb-4"></div>
+            Loading scan results...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function loadResults() {
+        try {
+            const data = await apiCall('/api/scans');
+            renderResults(data.scans || []);
+        } catch (error) {
+            document.getElementById('resultsList').innerHTML = `
+                <div class="text-center py-12 text-gray-500">
+                    <i class="fas fa-exclamation-triangle text-4xl mb-4"></i>
+                    <p>Failed to load results</p>
+                </div>
+            `;
+        }
+    }
+
+    function renderResults(scans) {
+        const container = document.getElementById('resultsList');
+        
+        if (scans.length === 0) {
+            container.innerHTML = `
+                <div class="bg-white rounded-2xl shadow-lg p-12 text-center">
+                    <i class="fas fa-search text-6xl text-gray-300 mb-4"></i>
+                    <h3 class="text-xl font-semibold text-gray-600">No Scans Yet</h3>
+                    <p class="text-gray-500 mt-2">Start your first security scan to see results here</p>
+                    <a href="/scan" class="inline-block mt-6 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                        <i class="fas fa-play mr-2"></i>Start Scan
+                    </a>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = scans.map(scan => {
+            const statusBadge = getStatusBadge(scan.status);
+            const summary = scan.summary || {};
+            const severityCounts = summary.by_severity || {};
+            const typeCounts = summary.by_type || {};
+            
+            return `
+                <div class="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition">
+                    <div class="p-6">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-grow">
+                                <div class="flex items-center gap-3 mb-2">
+                                    ${statusBadge}
+                                    <span class="text-sm text-gray-500">${new Date(scan.started_at).toLocaleString()}</span>
+                                </div>
+                                <h3 class="text-lg font-semibold text-gray-800 font-mono">${scan.target_path}</h3>
+                                
+                                ${scan.status === 'completed' ? `
+                                    <div class="mt-4 flex flex-wrap gap-2">
+                                        ${severityCounts.critical ? `
+                                            <span class="px-3 py-1 rounded-full text-sm font-medium bg-red-900 text-white">
+                                                <i class="fas fa-exclamation-circle mr-1"></i>${severityCounts.critical} Critical
+                                            </span>
+                                        ` : ''}
+                                        ${severityCounts.high ? `
+                                            <span class="px-3 py-1 rounded-full text-sm font-medium bg-red-600 text-white">
+                                                <i class="fas fa-exclamation-triangle mr-1"></i>${severityCounts.high} High
+                                            </span>
+                                        ` : ''}
+                                        ${severityCounts.medium ? `
+                                            <span class="px-3 py-1 rounded-full text-sm font-medium bg-amber-500 text-white">
+                                                ${severityCounts.medium} Medium
+                                            </span>
+                                        ` : ''}
+                                        ${severityCounts.low ? `
+                                            <span class="px-3 py-1 rounded-full text-sm font-medium bg-blue-500 text-white">
+                                                ${severityCounts.low} Low
+                                            </span>
+                                        ` : ''}
+                                    </div>
+                                    
+                                    <div class="mt-3 flex gap-4 text-sm text-gray-500">
+                                        <span><i class="fas fa-code mr-1"></i>SAST: ${typeCounts.sast || 0}</span>
+                                        <span><i class="fas fa-cube mr-1"></i>SCA: ${typeCounts.sca || 0}</span>
+                                        <span><i class="fas fa-key mr-1"></i>Secrets: ${typeCounts.secrets || 0}</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            
+                            <a href="/results/${scan.id}" 
+                               class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition flex items-center gap-2">
+                                View Details
+                                <i class="fas fa-arrow-right"></i>
+                            </a>
+                        </div>
+                    </div>
+                    
+                    ${scan.status === 'completed' && summary.total_findings > 0 ? `
+                        <div class="bg-gray-50 px-6 py-3 border-t flex items-center justify-between">
+                            <span class="text-sm text-gray-600">
+                                <i class="fas fa-bug mr-1"></i>
+                                ${summary.total_findings} total findings
+                            </span>
+                            <span class="text-sm text-gray-500">
+                                <i class="fas fa-clock mr-1"></i>
+                                ${summary.scan_duration_seconds?.toFixed(1) || '?'}s scan time
+                            </span>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function getStatusBadge(status) {
+        switch (status) {
+            case 'running':
+                return '<span class="px-2 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-700"><i class="fas fa-spinner fa-spin mr-1"></i>Running</span>';
+            case 'completed':
+                return '<span class="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700"><i class="fas fa-check mr-1"></i>Completed</span>';
+            case 'error':
+                return '<span class="px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-700"><i class="fas fa-times mr-1"></i>Error</span>';
+            default:
+                return '<span class="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">Unknown</span>';
+        }
+    }
+
+    // Load results on page load
+    loadResults();
+    
+    // Refresh every 10 seconds
+    setInterval(loadResults, 10000);
+</script>
+{% endblock %}

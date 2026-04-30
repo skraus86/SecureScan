@@ -1,0 +1,201 @@
+# Azure DevOps Pipeline for SecureScan
+# Security scanning for SAST, SCA, and Secrets detection
+
+trigger:
+  branches:
+    include:
+      - main
+      - master
+      - develop
+      - release/*
+  paths:
+    exclude:
+      - '*.md'
+      - 'docs/*'
+
+pr:
+  branches:
+    include:
+      - main
+      - master
+      - develop
+
+schedules:
+  - cron: '0 2 * * *'
+    displayName: 'Daily Security Scan'
+    branches:
+      include:
+        - main
+    always: true
+
+variables:
+  - name: pythonVersion
+    value: '3.11'
+  - name: reportDirectory
+    value: '$(Build.ArtifactStagingDirectory)/security-reports'
+
+stages:
+  - stage: SecurityScan
+    displayName: 'Security Scanning'
+    jobs:
+      - job: SecureScan
+        displayName: 'Run SecureScan'
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            displayName: 'Checkout Repository'
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python $(pythonVersion)'
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+
+          - script: |
+              pip install --upgrade pip
+              pip install -e .
+              pip install -r requirements.txt
+            displayName: 'Install SecureScan'
+
+          - script: |
+              mkdir -p $(reportDirectory)
+              python -m securescan $(Build.SourcesDirectory) \
+                --output $(reportDirectory) \
+                --format json,html,sarif \
+                --no-fail
+            displayName: 'Run Security Scan'
+            continueOnError: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Security Reports'
+            inputs:
+              pathToPublish: '$(reportDirectory)'
+              artifactName: 'SecurityReports'
+              publishLocation: 'Container'
+
+          - script: |
+              # Find and publish SARIF file
+              SARIF_FILE=$(find $(reportDirectory) -name "*.sarif" | head -1)
+              if [ -n "$SARIF_FILE" ]; then
+                echo "##vso[task.setvariable variable=sarifFile]$SARIF_FILE"
+              fi
+            displayName: 'Locate SARIF File'
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish SARIF for Advanced Security'
+            inputs:
+              targetPath: '$(reportDirectory)'
+              artifact: 'CodeAnalysisLogs'
+            condition: always()
+
+          - script: |
+              # Parse JSON report and check for critical issues
+              JSON_FILE=$(find $(reportDirectory) -name "*.json" ! -name "*executive*" | head -1)
+              if [ -n "$JSON_FILE" ]; then
+                CRITICAL=$(python -c "import json; data=json.load(open('$JSON_FILE')); print(data['summary']['by_severity']['critical'])")
+                HIGH=$(python -c "import json; data=json.load(open('$JSON_FILE')); print(data['summary']['by_severity']['high'])")
+                
+                echo "Critical Issues: $CRITICAL"
+                echo "High Issues: $HIGH"
+                
+                echo "##vso[task.setvariable variable=criticalCount]$CRITICAL"
+                echo "##vso[task.setvariable variable=highCount]$HIGH"
+                
+                # Create summary
+                echo "##vso[task.uploadsummary]$JSON_FILE"
+              fi
+            displayName: 'Parse Scan Results'
+
+          - script: |
+              echo "## Security Scan Summary" >> $(System.DefaultWorkingDirectory)/security-summary.md
+              echo "" >> $(System.DefaultWorkingDirectory)/security-summary.md
+              echo "| Metric | Value |" >> $(System.DefaultWorkingDirectory)/security-summary.md
+              echo "|--------|-------|" >> $(System.DefaultWorkingDirectory)/security-summary.md
+              echo "| Critical Issues | $(criticalCount) |" >> $(System.DefaultWorkingDirectory)/security-summary.md
+              echo "| High Issues | $(highCount) |" >> $(System.DefaultWorkingDirectory)/security-summary.md
+              echo "" >> $(System.DefaultWorkingDirectory)/security-summary.md
+              echo "[View Full Report]($(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)&view=artifacts)" >> $(System.DefaultWorkingDirectory)/security-summary.md
+            displayName: 'Generate Summary'
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Summary'
+            inputs:
+              targetPath: '$(System.DefaultWorkingDirectory)/security-summary.md'
+              artifact: 'SecuritySummary'
+
+      - job: DependencyCheck
+        displayName: 'OWASP Dependency Check'
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - checkout: self
+
+          - task: dependency-check-build-task@6
+            displayName: 'OWASP Dependency Check'
+            inputs:
+              projectName: '$(Build.Repository.Name)'
+              scanPath: '$(Build.SourcesDirectory)'
+              format: 'HTML,JSON,SARIF'
+              failOnCVSS: '7'
+            continueOnError: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Dependency Check Report'
+            inputs:
+              pathToPublish: '$(Common.TestResultsDirectory)/dependency-check'
+              artifactName: 'DependencyCheckReport'
+            condition: always()
+
+  - stage: SecurityGate
+    displayName: 'Security Gate'
+    dependsOn: SecurityScan
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+    
+    jobs:
+      - job: EvaluateResults
+        displayName: 'Evaluate Security Results'
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - download: current
+            artifact: 'SecurityReports'
+
+          - script: |
+              JSON_FILE=$(find $(Pipeline.Workspace)/SecurityReports -name "*.json" ! -name "*executive*" | head -1)
+              
+              if [ -n "$JSON_FILE" ]; then
+                CRITICAL=$(python -c "import json; data=json.load(open('$JSON_FILE')); print(data['summary']['by_severity']['critical'])")
+                
+                if [ "$CRITICAL" -gt 0 ]; then
+                  echo "##vso[task.logissue type=error]Found $CRITICAL critical security issues!"
+                  echo "##vso[task.complete result=Failed;]Security gate failed due to critical issues"
+                  exit 1
+                fi
+              fi
+              
+              echo "Security gate passed!"
+            displayName: 'Check Critical Issues'
+
+  - stage: Notify
+    displayName: 'Notifications'
+    dependsOn: SecurityScan
+    condition: and(failed(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    
+    jobs:
+      - job: NotifyTeam
+        displayName: 'Send Notifications'
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - script: |
+              echo "Security scan failed on main branch!"
+              echo "Build: $(Build.BuildNumber)"
+              echo "Commit: $(Build.SourceVersion)"
+              # Add your notification logic here (Teams, Slack, Email, etc.)
+            displayName: 'Send Alert'

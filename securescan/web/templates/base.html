@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SecureScan{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .severity-critical { background-color: #7f1d1d; color: white; }
+        .severity-high { background-color: #dc2626; color: white; }
+        .severity-medium { background-color: #f59e0b; color: white; }
+        .severity-low { background-color: #3b82f6; color: white; }
+        .severity-info { background-color: #6b7280; color: white; }
+        
+        .cvss-critical { border-left: 4px solid #7f1d1d; }
+        .cvss-high { border-left: 4px solid #dc2626; }
+        .cvss-medium { border-left: 4px solid #f59e0b; }
+        .cvss-low { border-left: 4px solid #3b82f6; }
+        
+        .finding-card { transition: all 0.2s ease-in-out; }
+        .finding-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6366f1;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .pulse-dot {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <a href="/" class="flex items-center gap-2 font-bold text-xl">
+                    <i class="fas fa-shield-alt"></i>
+                    SecureScan
+                </a>
+                <div class="flex items-center gap-6">
+                    <a href="/" class="hover:text-indigo-200 transition {% block nav_dashboard %}{% endblock %}">
+                        <i class="fas fa-home mr-1"></i> Dashboard
+                    </a>
+                    <a href="/scan" class="hover:text-indigo-200 transition {% block nav_scan %}{% endblock %}">
+                        <i class="fas fa-search mr-1"></i> New Scan
+                    </a>
+                    <a href="/results" class="hover:text-indigo-200 transition {% block nav_results %}{% endblock %}">
+                        <i class="fas fa-list mr-1"></i> Results
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-gray-400 py-4 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center text-sm">
+            SecureScan v1.0.0 | SAST • SCA • Secrets Detection
+        </div>
+    </footer>
+
+    <!-- Common Scripts -->
+    <script>
+        // Severity colors for charts
+        const severityColors = {
+            critical: '#7f1d1d',
+            high: '#dc2626',
+            medium: '#f59e0b',
+            low: '#3b82f6',
+            info: '#6b7280'
+        };
+
+        // CVSS to severity mapping
+        function cvssToSeverity(score) {
+            if (score === null || score === undefined) return 'unknown';
+            if (score >= 9.0) return 'critical';
+            if (score >= 7.0) return 'high';
+            if (score >= 4.0) return 'medium';
+            if (score >= 0.1) return 'low';
+            return 'none';
+        }
+
+        // Format CVSS score display
+        function formatCVSS(score) {
+            if (score === null || score === undefined) return 'N/A';
+            return score.toFixed(1);
+        }
+
+        // API helper
+        async function apiCall(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: { 'Content-Type': 'application/json' },
+                    ...options
+                });
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        // Toast notification
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            const bgColor = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-indigo-500';
+            toast.className = `fixed bottom-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

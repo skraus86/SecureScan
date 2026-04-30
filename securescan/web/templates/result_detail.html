@@ -1,0 +1,539 @@
+{% extends "base.html" %}
+
+{% block title %}SecureScan - Scan Details{% endblock %}
+{% block nav_results %}text-indigo-200 font-semibold{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div id="scanHeader" class="bg-white rounded-2xl shadow-lg p-6">
+        <div class="flex items-center gap-4">
+            <a href="/results" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-arrow-left text-xl"></i>
+            </a>
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">Scan Results</h1>
+                <p id="targetPath" class="text-gray-500 font-mono">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div id="summaryCards" class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="bg-white rounded-xl shadow-md p-4 border-l-4 border-red-900">
+            <p class="text-sm text-gray-500">Critical</p>
+            <p id="criticalCount" class="text-2xl font-bold text-red-900">-</p>
+            <p class="text-xs text-gray-400">CVSS 9.0-10.0</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-md p-4 border-l-4 border-red-600">
+            <p class="text-sm text-gray-500">High</p>
+            <p id="highCount" class="text-2xl font-bold text-red-600">-</p>
+            <p class="text-xs text-gray-400">CVSS 7.0-8.9</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-md p-4 border-l-4 border-amber-500">
+            <p class="text-sm text-gray-500">Medium</p>
+            <p id="mediumCount" class="text-2xl font-bold text-amber-500">-</p>
+            <p class="text-xs text-gray-400">CVSS 4.0-6.9</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-md p-4 border-l-4 border-blue-500">
+            <p class="text-sm text-gray-500">Low</p>
+            <p id="lowCount" class="text-2xl font-bold text-blue-500">-</p>
+            <p class="text-xs text-gray-400">CVSS 0.1-3.9</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-md p-4 border-l-4 border-gray-400">
+            <p class="text-sm text-gray-500">Info</p>
+            <p id="infoCount" class="text-2xl font-bold text-gray-500">-</p>
+            <p class="text-xs text-gray-400">Informational</p>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl shadow-md p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Findings by CVE Severity</h3>
+            <canvas id="severityChart" height="200"></canvas>
+        </div>
+        <div class="bg-white rounded-xl shadow-md p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Findings by Type</h3>
+            <canvas id="typeChart" height="200"></canvas>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-xl shadow-md p-4">
+        <div class="flex flex-wrap gap-4 items-center">
+            <span class="text-gray-700 font-medium">Filter:</span>
+            
+            <select id="severityFilter" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                <option value="all">All Severities</option>
+                <option value="critical">Critical (CVSS 9.0+)</option>
+                <option value="high">High (CVSS 7.0-8.9)</option>
+                <option value="medium">Medium (CVSS 4.0-6.9)</option>
+                <option value="low">Low (CVSS 0.1-3.9)</option>
+                <option value="info">Info</option>
+            </select>
+            
+            <select id="typeFilter" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                <option value="all">All Types</option>
+                <option value="sast">SAST</option>
+                <option value="sca">SCA</option>
+                <option value="secret">Secrets</option>
+            </select>
+            
+            <input type="text" id="searchInput" placeholder="Search findings..." 
+                   class="flex-grow px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+            
+            <button id="exportBtn" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                <i class="fas fa-download mr-1"></i> Export
+            </button>
+        </div>
+    </div>
+
+    <!-- Findings List -->
+    <div class="bg-white rounded-xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-800">
+                <i class="fas fa-bug text-red-500 mr-2"></i>
+                Security Findings
+            </h3>
+            <span id="findingsCount" class="text-sm text-gray-500">Loading...</span>
+        </div>
+        
+        <div id="findingsList" class="space-y-4">
+            <div class="text-center py-8 text-gray-500">
+                <div class="loader mx-auto mb-4"></div>
+                Loading findings...
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Finding Detail Modal -->
+<div id="findingModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 overflow-y-auto">
+    <div class="min-h-screen px-4 py-8 flex items-start justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full">
+            <div class="p-6 border-b flex items-center justify-between">
+                <h3 id="modalTitle" class="text-xl font-bold text-gray-800">Finding Details</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div id="modalContent" class="p-6">
+                <!-- Content populated by JS -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const scanId = '{{ scan_id }}';
+    let allFindings = [];
+    let severityChart = null;
+    let typeChart = null;
+
+    async function loadScanResult() {
+        try {
+            // Get scan status first
+            const status = await apiCall(`/api/scan/${scanId}/status`);
+            
+            if (status.status === 'running') {
+                document.getElementById('targetPath').textContent = status.target_path + ' (Scanning...)';
+                setTimeout(loadScanResult, 2000);
+                return;
+            }
+            
+            if (status.status === 'error') {
+                showToast('Scan failed: ' + status.error, 'error');
+                return;
+            }
+            
+            // Get full result
+            const result = await apiCall(`/api/scan/${scanId}/result`);
+            
+            document.getElementById('targetPath').textContent = result.target_path;
+            
+            // Update summary
+            const summary = result.summary || {};
+            const bySeverity = summary.by_severity || {};
+            
+            document.getElementById('criticalCount').textContent = bySeverity.critical || 0;
+            document.getElementById('highCount').textContent = bySeverity.high || 0;
+            document.getElementById('mediumCount').textContent = bySeverity.medium || 0;
+            document.getElementById('lowCount').textContent = bySeverity.low || 0;
+            document.getElementById('infoCount').textContent = bySeverity.info || 0;
+            
+            // Store findings
+            allFindings = result.findings || [];
+            
+            // Render charts
+            renderCharts(summary);
+            
+            // Render findings
+            renderFindings(allFindings);
+            
+        } catch (error) {
+            console.error('Failed to load result:', error);
+            showToast('Failed to load scan result', 'error');
+        }
+    }
+
+    function renderCharts(summary) {
+        const bySeverity = summary.by_severity || {};
+        const byType = summary.by_type || {};
+        
+        // Severity Chart
+        const severityCtx = document.getElementById('severityChart').getContext('2d');
+        if (severityChart) severityChart.destroy();
+        
+        severityChart = new Chart(severityCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Critical (9.0-10.0)', 'High (7.0-8.9)', 'Medium (4.0-6.9)', 'Low (0.1-3.9)', 'Info'],
+                datasets: [{
+                    data: [
+                        bySeverity.critical || 0,
+                        bySeverity.high || 0,
+                        bySeverity.medium || 0,
+                        bySeverity.low || 0,
+                        bySeverity.info || 0
+                    ],
+                    backgroundColor: ['#7f1d1d', '#dc2626', '#f59e0b', '#3b82f6', '#6b7280']
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom' },
+                    title: {
+                        display: true,
+                        text: 'Based on CVSS v3.0 Severity Ratings'
+                    }
+                }
+            }
+        });
+        
+        // Type Chart
+        const typeCtx = document.getElementById('typeChart').getContext('2d');
+        if (typeChart) typeChart.destroy();
+        
+        typeChart = new Chart(typeCtx, {
+            type: 'bar',
+            data: {
+                labels: ['SAST', 'SCA', 'Secrets'],
+                datasets: [{
+                    label: 'Findings',
+                    data: [byType.sast || 0, byType.sca || 0, byType.secrets || 0],
+                    backgroundColor: ['#6366f1', '#8b5cf6', '#a855f7']
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    function renderFindings(findings) {
+        const container = document.getElementById('findingsList');
+        document.getElementById('findingsCount').textContent = `${findings.length} findings`;
+        
+        if (findings.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12">
+                    <i class="fas fa-check-circle text-6xl text-green-500 mb-4"></i>
+                    <h4 class="text-xl font-semibold text-green-800">No Security Issues Found!</h4>
+                    <p class="text-green-600 mt-2">Your code passed all security checks.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = findings.map((finding, index) => {
+            const severityClass = getSeverityClass(finding.severity);
+            const cvssDisplay = finding.cvss_score !== null ? finding.cvss_score.toFixed(1) : 'N/A';
+            const cvssColor = getCVSSColor(finding.cvss_score);
+            const typeIcon = getTypeIcon(finding.finding_type);
+            
+            return `
+                <div class="finding-card bg-gray-50 rounded-xl p-4 cursor-pointer hover:bg-gray-100 transition ${severityClass}"
+                     onclick="showFindingDetail(${index})">
+                    <div class="flex items-start gap-4">
+                        <div class="flex-shrink-0">
+                            <div class="w-12 h-12 rounded-lg flex items-center justify-center ${getSeverityBgClass(finding.severity)}">
+                                <span class="text-white font-bold text-sm">${cvssDisplay}</span>
+                            </div>
+                        </div>
+                        <div class="flex-grow min-w-0">
+                            <div class="flex items-center gap-2 flex-wrap mb-1">
+                                <span class="px-2 py-0.5 rounded text-xs font-semibold uppercase ${getSeverityBadgeClass(finding.severity)}">
+                                    ${finding.severity}
+                                </span>
+                                <span class="px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700">
+                                    <i class="${typeIcon} mr-1"></i>${finding.finding_type.toUpperCase()}
+                                </span>
+                                ${finding.cwe_id ? `<span class="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">${finding.cwe_id}</span>` : ''}
+                                ${finding.cvss_score !== null ? `
+                                    <span class="px-2 py-0.5 rounded text-xs ${cvssColor}">
+                                        CVSS: ${cvssDisplay}
+                                    </span>
+                                ` : ''}
+                            </div>
+                            <h4 class="font-semibold text-gray-800 truncate">${finding.title}</h4>
+                            <p class="text-sm text-gray-500 truncate">${finding.description}</p>
+                            <p class="text-xs text-gray-400 mt-1 font-mono truncate">
+                                <i class="fas fa-file-code mr-1"></i>
+                                ${finding.location.file_path}:${finding.location.start_line}
+                            </p>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-chevron-right text-gray-400"></i>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function showFindingDetail(index) {
+        const finding = allFindings[index];
+        if (!finding) return;
+        
+        const cvssDisplay = finding.cvss_score !== null ? finding.cvss_score.toFixed(1) : 'N/A';
+        const cvssRating = getCVSSRating(finding.cvss_score);
+        
+        document.getElementById('modalTitle').textContent = finding.title;
+        document.getElementById('modalContent').innerHTML = `
+            <div class="space-y-6">
+                <!-- Severity & CVSS -->
+                <div class="flex items-center gap-4">
+                    <div class="text-center p-4 rounded-lg ${getSeverityBgClass(finding.severity)}">
+                        <p class="text-white text-3xl font-bold">${cvssDisplay}</p>
+                        <p class="text-white text-sm opacity-80">CVSS Score</p>
+                    </div>
+                    <div>
+                        <p class="text-lg font-semibold text-gray-800">${cvssRating} Severity</p>
+                        <p class="text-sm text-gray-500">Based on CVSS v3.0 scoring</p>
+                        <div class="flex gap-2 mt-2">
+                            <span class="px-2 py-1 rounded text-xs ${getSeverityBadgeClass(finding.severity)}">${finding.severity.toUpperCase()}</span>
+                            ${finding.cwe_id ? `<span class="px-2 py-1 rounded text-xs bg-purple-100 text-purple-700">${finding.cwe_id}</span>` : ''}
+                            <span class="px-2 py-1 rounded text-xs bg-gray-100 text-gray-700">${finding.rule_id}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Description -->
+                <div>
+                    <h4 class="font-semibold text-gray-800 mb-2">Description</h4>
+                    <p class="text-gray-600">${finding.description}</p>
+                </div>
+                
+                <!-- Location -->
+                <div>
+                    <h4 class="font-semibold text-gray-800 mb-2">Location</h4>
+                    <div class="bg-gray-100 rounded-lg p-3 font-mono text-sm">
+                        <p><i class="fas fa-file-code mr-2 text-gray-500"></i>${finding.location.file_path}</p>
+                        <p class="text-gray-500">Line ${finding.location.start_line}${finding.location.end_line !== finding.location.start_line ? ' - ' + finding.location.end_line : ''}</p>
+                    </div>
+                </div>
+                
+                <!-- Code Snippet -->
+                ${finding.location.snippet ? `
+                    <div>
+                        <h4 class="font-semibold text-gray-800 mb-2">Code Snippet</h4>
+                        <pre class="bg-gray-900 text-gray-100 rounded-lg p-4 overflow-x-auto text-sm"><code>${escapeHtml(finding.location.snippet)}</code></pre>
+                    </div>
+                ` : ''}
+                
+                <!-- Remediation -->
+                ${finding.remediation ? `
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <h4 class="font-semibold text-green-800 mb-2">
+                            <i class="fas fa-lightbulb mr-1"></i>Remediation
+                        </h4>
+                        <p class="text-green-700">${finding.remediation.description}</p>
+                        ${finding.remediation.fix_example ? `
+                            <div class="mt-3">
+                                <p class="text-sm font-medium text-green-800 mb-1">Example Fix:</p>
+                                <pre class="bg-green-900 text-green-100 rounded p-3 text-sm overflow-x-auto"><code>${escapeHtml(finding.remediation.fix_example)}</code></pre>
+                            </div>
+                        ` : ''}
+                        ${finding.remediation.references && finding.remediation.references.length > 0 ? `
+                            <div class="mt-3">
+                                <p class="text-sm font-medium text-green-800 mb-1">References:</p>
+                                <ul class="text-sm text-green-700 space-y-1">
+                                    ${finding.remediation.references.map(ref => `
+                                        <li><a href="${ref}" target="_blank" class="hover:underline"><i class="fas fa-external-link-alt mr-1"></i>${ref}</a></li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : ''}
+                
+                <!-- CVE Info for SCA findings -->
+                ${finding.metadata && finding.metadata.cve ? `
+                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                        <h4 class="font-semibold text-amber-800 mb-2">
+                            <i class="fas fa-shield-alt mr-1"></i>Vulnerability Information
+                        </h4>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <p class="text-amber-600">CVE ID</p>
+                                <p class="font-medium text-amber-900">${finding.metadata.cve}</p>
+                            </div>
+                            <div>
+                                <p class="text-amber-600">Package</p>
+                                <p class="font-medium text-amber-900">${finding.metadata.package_name || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p class="text-amber-600">Installed Version</p>
+                                <p class="font-medium text-amber-900">${finding.metadata.installed_version || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p class="text-amber-600">Fixed Version</p>
+                                <p class="font-medium text-amber-900">${finding.metadata.fixed_version || 'N/A'}</p>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+        
+        document.getElementById('findingModal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+        document.getElementById('findingModal').classList.add('hidden');
+    }
+
+    // Close modal on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeModal();
+    });
+
+    // Close modal on backdrop click
+    document.getElementById('findingModal').addEventListener('click', (e) => {
+        if (e.target.id === 'findingModal') closeModal();
+    });
+
+    // Filter handlers
+    document.getElementById('severityFilter').addEventListener('change', applyFilters);
+    document.getElementById('typeFilter').addEventListener('change', applyFilters);
+    document.getElementById('searchInput').addEventListener('input', applyFilters);
+
+    function applyFilters() {
+        const severity = document.getElementById('severityFilter').value;
+        const type = document.getElementById('typeFilter').value;
+        const search = document.getElementById('searchInput').value.toLowerCase();
+        
+        let filtered = allFindings;
+        
+        if (severity !== 'all') {
+            filtered = filtered.filter(f => f.severity === severity);
+        }
+        
+        if (type !== 'all') {
+            filtered = filtered.filter(f => f.finding_type === type);
+        }
+        
+        if (search) {
+            filtered = filtered.filter(f => 
+                f.title.toLowerCase().includes(search) ||
+                f.description.toLowerCase().includes(search) ||
+                f.location.file_path.toLowerCase().includes(search)
+            );
+        }
+        
+        renderFindings(filtered);
+    }
+
+    // Helper functions
+    function getSeverityClass(severity) {
+        const classes = {
+            critical: 'cvss-critical',
+            high: 'cvss-high',
+            medium: 'cvss-medium',
+            low: 'cvss-low'
+        };
+        return classes[severity] || '';
+    }
+
+    function getSeverityBgClass(severity) {
+        const classes = {
+            critical: 'bg-red-900',
+            high: 'bg-red-600',
+            medium: 'bg-amber-500',
+            low: 'bg-blue-500',
+            info: 'bg-gray-500'
+        };
+        return classes[severity] || 'bg-gray-500';
+    }
+
+    function getSeverityBadgeClass(severity) {
+        const classes = {
+            critical: 'bg-red-900 text-white',
+            high: 'bg-red-600 text-white',
+            medium: 'bg-amber-500 text-white',
+            low: 'bg-blue-500 text-white',
+            info: 'bg-gray-500 text-white'
+        };
+        return classes[severity] || 'bg-gray-500 text-white';
+    }
+
+    function getCVSSColor(score) {
+        if (score === null || score === undefined) return 'bg-gray-100 text-gray-700';
+        if (score >= 9.0) return 'bg-red-900 text-white';
+        if (score >= 7.0) return 'bg-red-600 text-white';
+        if (score >= 4.0) return 'bg-amber-500 text-white';
+        if (score >= 0.1) return 'bg-blue-500 text-white';
+        return 'bg-gray-100 text-gray-700';
+    }
+
+    function getCVSSRating(score) {
+        if (score === null || score === undefined) return 'Unknown';
+        if (score >= 9.0) return 'Critical';
+        if (score >= 7.0) return 'High';
+        if (score >= 4.0) return 'Medium';
+        if (score >= 0.1) return 'Low';
+        return 'None';
+    }
+
+    function getTypeIcon(type) {
+        const icons = {
+            sast: 'fas fa-code',
+            sca: 'fas fa-cube',
+            secret: 'fas fa-key'
+        };
+        return icons[type] || 'fas fa-bug';
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Export functionality
+    document.getElementById('exportBtn').addEventListener('click', async () => {
+        try {
+            const result = await apiCall(`/api/scan/${scanId}/result`);
+            const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `securescan-${scanId}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('Report exported successfully', 'success');
+        } catch (error) {
+            showToast('Failed to export report', 'error');
+        }
+    });
+
+    // Load on page load
+    loadScanResult();
+</script>
+{% endblock %}
