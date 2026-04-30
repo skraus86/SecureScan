@@ -1,6 +1,7 @@
 
 # 🛡️ SecureScan
 Developed with Claude 4.5
+
 **Application Security Scanner for SAST, SCA, and Secrets Detection**
 
 SecureScan is a comprehensive security scanning tool designed for CI/CD integration with GitHub Actions and Azure DevOps. It provides static application security testing (SAST), software composition analysis (SCA), and secrets detection capabilities with beautiful reports for both engineers and leadership.
