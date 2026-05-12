@@ -4,7 +4,7 @@
   "description": "Example app with vulnerable dependencies for testing SecureScan",
   "dependencies": {
     "lodash": "4.17.15",
-    "axios": "0.21.0",
+    "axios": "0.31.1",
     "minimist": "1.2.5",
     "express": "4.17.1",
     "jsonwebtoken": "8.5.1"
